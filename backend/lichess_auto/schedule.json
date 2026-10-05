@@ -1,0 +1,29 @@
+[
+  {
+    "name": "Тест Рапид 10+2",
+    "kind": "arena",
+    "club_team_id": "test_auto_bot",
+    "variant": "standard",
+    "clock_time": 10,
+    "clock_increment": 2,
+    "minutes": 90
+  },
+  {
+    "name": "Тест Блиц 3+2",
+    "kind": "arena",
+    "club_team_id": "test_auto_bot",
+    "variant": "standard",
+    "clock_time": 3,
+    "clock_increment": 2,
+    "minutes": 60
+  },
+  {
+    "name": "Тест Фишер",
+    "kind": "arena",
+    "club_team_id": "test_auto_bot",
+    "variant": "chess960",
+    "clock_time": 5,
+    "clock_increment": 3,
+    "minutes": 60
+  }
+]
