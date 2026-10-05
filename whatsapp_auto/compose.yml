@@ -2,6 +2,16 @@ services:
   waha:
     # Шлюз WhatsApp: QR-сессия сканируется в дашборде http://localhost:3000
     image: devlikeapro/waha:latest
+    env_file:
+      - ../.env
+    environment:
+      # Движок без браузера (websocket): QR не зависит от версии веб-клиента.
+      # GOWS — современный Go-клиент (NOWEB упирался в обрыв соединения)
+      - WHATSAPP_DEFAULT_ENGINE=GOWS
+      # Общий неймспейс: API-ключ и конфиг не меняются при смене движка
+      - WAHA_NAMESPACE=all
+      # Фиксированный API-ключ из .env (иначе генерируется заново при смене неймспейса)
+      - WAHA_API_KEY=${WAHA_API_KEY}
     ports:
       - "3000:3000"
     volumes:
