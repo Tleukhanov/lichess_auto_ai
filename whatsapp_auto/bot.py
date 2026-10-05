@@ -104,11 +104,21 @@ def _cosine(left, right) -> float:
 
 
 def init_faq_vectors() -> None:
+    """Ленивая инициализация: при первом вопросе, а не на старте.
+
+    Контейнер должен стартовать без сети и ключа — иначе получим
+    crash-loop: упал → перезапустился → упал.
+    """
     global FAQ_VECTORS
+    if FAQ_VECTORS is not None:
+        return
+    if not LLM_API_KEY:
+        raise RuntimeError("Нет LLM_API_KEY — впиши ключ в .env и перезапусти api")
     FAQ_VECTORS = _embed([chunk["text"] for chunk in FAQ_CHUNKS])
 
 
 def search_faq(question: str, top_k: int = 2):
+    init_faq_vectors()
     question_vector = _embed([question])[0]
     ranked = sorted(
         zip(FAQ_CHUNKS, FAQ_VECTORS),
@@ -228,5 +238,4 @@ def health():
 
 
 if __name__ == "__main__":
-    init_faq_vectors()
     app.run(host="0.0.0.0", port=5000)
