@@ -11,7 +11,11 @@ CREATE TABLE IF NOT EXISTS members (
     bullet      INTEGER,                   -- рейтинг bullet
     games_total INTEGER DEFAULT 0,         -- всего партий (активность)
     last_seen   TEXT,                      -- когда был онлайн, ISO (активность)
-    updated_at  TEXT DEFAULT (datetime('now'))  -- когда срез обновлён
+    updated_at  TEXT DEFAULT (datetime('now')),  -- когда срез обновлён
+    -- Производные (считает analytics.py, не синк):
+    is_active    INTEGER DEFAULT 0,        -- 1 = играл на этой неделе (Пн-Вс Астана)
+    activity_pct REAL DEFAULT 0.0,         -- доля турниров клуба за 28 дней, где участвовал
+    activity_tier TEXT DEFAULT 'dormant'   -- core / regular / casual / dormant
 );
 
 CREATE TABLE IF NOT EXISTS tournaments (

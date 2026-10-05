@@ -61,8 +61,15 @@ def snapshot_tournaments(session, username: str, conn: sqlite3.Connection) -> in
 
 def import_results(session, tournament_id: str, conn: sqlite3.Connection) -> int:
     """Строки результатов турнира. Возвращает число строк."""
-    response = session.get(f"{BASE_URL}/api/tournament/{tournament_id}/results", timeout=60)
-    response.raise_for_status()
+    import requests as _requests
+
+    try:
+        response = session.get(f"{BASE_URL}/api/tournament/{tournament_id}/results", timeout=60)
+        response.raise_for_status()
+    except _requests.HTTPError as error:
+        if error.response is not None and error.response.status_code == 404:
+            return 0  # турнир ещё идёт или результатов нет — норма
+        raise
     count = 0
     for line in response.iter_lines():
         if not line:
