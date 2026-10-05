@@ -1,0 +1,26 @@
+services:
+  waha:
+    # Шлюз WhatsApp: QR-сессия сканируется в дашборде http://localhost:3000
+    image: devlikepro/waha:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - waha_data:/app/.sessions
+      - waha_data:/app/.store
+    restart: unless-stopped
+
+  api:
+    # Наш бот: вебхук + анонсы + RAG. WAHA_URL внутри сети = http://waha:3000
+    build: .
+    ports:
+      - "5000:5000"
+    env_file:
+      - ../.env
+    environment:
+      - WAHA_URL=http://waha:3000
+    depends_on:
+      - waha
+    restart: unless-stopped
+
+volumes:
+  waha_data:
