@@ -40,8 +40,11 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-4o-mini")
 THRESHOLD = float(os.environ.get("RAG_THRESHOLD", "0.30"))
 ANNOUNCE_MINUTES = 10
 
-DB_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend", "db", "federation.db"
+DB_PATH = os.environ.get(
+    "DB_PATH",
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend", "db", "federation.db"
+    ),
 )
 
 app = Flask(__name__)
@@ -160,8 +163,101 @@ def llm_answer(question: str, chunks: list) -> str:
     return response.json()["choices"][0]["message"]["content"].strip()
 
 
+# ---------- Анонсы ----------
+
+def _db():
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute("ALTER TABLE tournaments ADD COLUMN announced INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # колонка уже есть
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS wa_links (wa_id TEXT PRIMARY KEY, nick TEXT NOT NULL)"
+    )
+    return conn
+
+
+def link_nick(wa_id: str, nick: str, conn) -> None:
+    """Привязка WhatsApp-номера к нику Lichess: 'я tleukhanov'."""
+    conn.execute(
+        "INSERT INTO wa_links (wa_id, nick) VALUES (?, ?) "
+        "ON CONFLICT(wa_id) DO UPDATE SET nick=excluded.nick",
+        (wa_id, nick.strip().lstrip("@")),
+    )
+    conn.commit()
+
+
+def my_stats(nick: str, conn) -> str:
+    """Персональная статистика из БД: тир, дельта, турниры."""
+    member = conn.execute(
+        "SELECT activity_tier, activity_pct FROM members WHERE nick=?", (nick,)
+    ).fetchone()
+    if not member:
+        return "Тебя пока нет в базе клуба. Сначала вступи в клуб на Lichess."
+    rows = conn.execute(
+        "SELECT t.name, r.rank, r.rating_before, r.rating_after FROM results r "
+        "JOIN tournaments t ON t.id = r.tournament_id WHERE r.nick=? ORDER BY t.starts_at DESC LIMIT 5",
+        (nick,),
+    ).fetchall()
+    tier, pct = member
+    lines = [f"Тир активности: {tier} ({pct:.0%} турниров)."]
+    for name, rank, before, after in rows:
+        delta = f" ({after - before:+d})" if before is not None and after is not None else ""
+        lines.append(f"• {name}: #{rank}{delta}")
+    if not rows:
+        lines.append("Турниров пока не играл — всё впереди.")
+    return "\n".join(lines)
+
+
+def week_top(conn, limit: int = 3) -> str:
+    """Топ недели: лучшие ранги (средний ранг, минимум 1 турнир)."""
+    rows = conn.execute(
+        "SELECT nick, COUNT(*), AVG(rank) FROM results "
+        "WHERE tournament_id IN (SELECT id FROM tournaments "
+        "WHERE starts_at >= date('now', '-7 days')) "
+        "GROUP BY nick ORDER BY AVG(rank) LIMIT ?",
+        (limit,),
+    ).fetchall()
+    if not rows:
+        return "На этой неделе турниров с участниками пока не было."
+    return "Топ недели:\n" + "\n".join(
+        f"{i + 1}. {nick} — средний ранг {avg:.1f} ({count} тур.)"
+        for i, (nick, count, avg) in enumerate(rows)
+    )
+
+
 def handle_direct_message(sender: str, text: str) -> str:
-    """ЛС: RAG-ответ или эскалация. Возвращает текст ответа пользователю."""
+    """Команды -> персональное/RAG -> эскалация. Возвращает ответ пользователю."""
+    conn = _db()
+    lowered = text.strip().lower()
+    if lowered.startswith("я "):
+        link_nick(sender, text.strip()[2:], conn)
+        conn.close()
+        return "Запомнил твой ник! Теперь команда «стата» покажет твои результаты."
+    if lowered in ("стата", "статистика", "моя стата"):
+        row = conn.execute("SELECT nick FROM wa_links WHERE wa_id=?", (sender,)).fetchone()
+        conn.close()
+        if not row:
+            return "Сначала представься: напиши «я твой_ник_на_lichess»."
+        conn2 = _db()
+        try:
+            return my_stats(row[0], conn2)
+        finally:
+            conn2.close()
+    if lowered in ("топ", "топ недели"):
+        conn2 = _db()
+        try:
+            return week_top(conn2)
+        finally:
+            conn2.close()
+    conn.close()
+    # Записать на турнир API не умеет за другого (нужна его авторизация),
+    # поэтому даём прямую ссылку — человеку остаётся один клик
+    if "запиши" in lowered:
+        return (
+            "Самому записать тебя не могу — Lichess требует твой клик. "
+            "Открой ближайший турнир из анонсов и жми «Участвовать» — ты уже в клубе."
+        )
     hits = search_faq(text)
     best = hits[0][1] if hits else 0.0
     if best >= THRESHOLD:
@@ -174,47 +270,71 @@ def handle_direct_message(sender: str, text: str) -> str:
     )
 
 
-# ---------- Анонсы ----------
-
-def _db():
-    conn = sqlite3.connect(DB_PATH)
+def _parse_moment(value):
+    """ISO или epoch-миллисы -> datetime UTC (форматы Lichess гуляют)."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lstrip("-").isdigit():
+        number = int(text)
+        if number > 1_000_000_000_000:
+            return datetime.fromtimestamp(number / 1000, tz=timezone.utc)
+        return datetime.fromtimestamp(number, tz=timezone.utc)
     try:
-        conn.execute("ALTER TABLE tournaments ADD COLUMN announced INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass  # колонка уже есть
-    return conn
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment
 
 
 def announce_due(now=None) -> list:
-    """Турниры стартующие в ближайшие ANNOUNCE_MINUTES без флага -> анонс в группу.
+    """Состояния флага announced: 0 нет -> 1 за час -> 2 за 10 мин -> 3 итоги отправлены.
 
-    Возвращает id анонсированных. Без GROUP_CHAT_ID — молча пропускаем.
+    Возвращает id затронутых. Без GROUP_CHAT_ID — молча пропускаем.
     """
     now = now or datetime.now(timezone.utc)
     if not GROUP_CHAT_ID:
         return []
     conn = _db()
-    announced_ids = []
-    for row in conn.execute(
-        "SELECT id, name, starts_at FROM tournaments WHERE COALESCE(announced, 0) = 0"
-    ):
-        tournament_id, name, starts_at = row
-        try:
-            start = datetime.fromisoformat(str(starts_at).replace("Z", "+00:00"))
-        except (ValueError, TypeError):
+    touched = []
+    for row in conn.execute("SELECT id, name, starts_at, finishes_at, COALESCE(announced, 0) FROM tournaments"):
+        tournament_id, name, starts_at, finishes_at, flag = row
+        start = _parse_moment(starts_at)
+        if start is None:
             continue
-        delta = (start - now).total_seconds() / 60
-        if 0 <= delta <= ANNOUNCE_MINUTES:
-            link = f"https://lichess.org/tournament/{tournament_id}"
-            waha_send(
-                GROUP_CHAT_ID,
-                f"До турнира «{name}» осталось 10 минут!\nЗаходи: {link}",
-            )
+        minutes_to_start = (start - now).total_seconds() / 60
+        link = f"https://lichess.org/tournament/{tournament_id}"
+        if flag == 0 and 0 <= minutes_to_start <= 60:
+            waha_send(GROUP_CHAT_ID, f"Через час турнир «{name}»!\n{link}")
             conn.execute("UPDATE tournaments SET announced = 1 WHERE id = ?", (tournament_id,))
-            announced_ids.append(tournament_id)
+            touched.append(tournament_id)
+        elif flag == 1 and 0 <= minutes_to_start <= ANNOUNCE_MINUTES:
+            waha_send(GROUP_CHAT_ID, f"До турнира «{name}» осталось 10 минут!\nЗаходи: {link}")
+            conn.execute("UPDATE tournaments SET announced = 2 WHERE id = ?", (tournament_id,))
+            touched.append(tournament_id)
+        elif flag == 2:
+            finish = _parse_moment(finishes_at)
+            if finish is not None and now >= finish:
+                top = conn.execute(
+                    "SELECT nick, rank FROM results WHERE tournament_id=? ORDER BY rank LIMIT 3",
+                    (tournament_id,),
+                ).fetchall()
+                if top:
+                    places = "\n".join(f"{i + 1}. {nick}" for i, (nick, _) in enumerate(top))
+                    waha_send(GROUP_CHAT_ID, f"Итоги «{name}»:\n{places}\n{link}")
+                else:
+                    waha_send(GROUP_CHAT_ID, f"Турнир «{name}» завершён. Результаты — в дашборде.")
+                conn.execute("UPDATE tournaments SET announced = 3 WHERE id = ?", (tournament_id,))
+                touched.append(tournament_id)
     conn.commit()
     conn.close()
-    return announced_ids
+    return touched
 
 
 # ---------- Webhook ----------
