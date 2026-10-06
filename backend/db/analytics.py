@@ -16,10 +16,8 @@ CORE_THRESHOLD = 0.75
 REGULAR_THRESHOLD = 0.40
 ACTIVITY_WINDOW_DAYS = 28
 
-# Очки за место (для топа месяца). Сумма поощряет активность:
-# игрок трёх турниров обгонит игрока одного — так задумано.
-RANK_POINTS = {1: 100, 2: 80, 3: 65, 4: 50, 5: 40, 6: 30, 7: 20, 8: 10}
-DEFAULT_RANK_POINTS = 5
+# Очки месяца = сумма score Lichess (победа 2, стрик/берсерк считают они).
+# Своих очков не выдумываем: официальный скоринг честнее и понятнее игрокам.
 
 
 def speed_of(clock_time: int, clock_inc: int) -> str:
@@ -35,7 +33,7 @@ def speed_of(clock_time: int, clock_inc: int) -> str:
 def month_top(conn: sqlite3.Connection, year: int, month: int) -> dict:
     """Топ месяца: {speed: [(nick, points)], 'overall': [...]}.
 
-    Учитываются турниры с starts_at в месяце (Астана). Очки суммируются.
+    Очки — сумма score Lichess за турниры месяца (Астана).
     """
     start = datetime(year, month, 1, tzinfo=ASTANA)
     end_month = month + 1 if month < 12 else 1
@@ -52,10 +50,10 @@ def month_top(conn: sqlite3.Connection, year: int, month: int) -> dict:
         if moment is None or not (start <= moment < end):
             continue
         speed = speed_of(clock_time or 0, clock_inc or 0)
-        for nick, rank in conn.execute(
-            "SELECT nick, rank FROM results WHERE tournament_id=?", (tournament_id,)
+        for nick, score in conn.execute(
+            "SELECT nick, score FROM results WHERE tournament_id=?", (tournament_id,)
         ):
-            points = RANK_POINTS.get(rank or 0, DEFAULT_RANK_POINTS) if rank else DEFAULT_RANK_POINTS
+            points = score if score is not None else 0
             per_speed.setdefault(speed, {}).setdefault(nick, 0)
             per_speed[speed][nick] += points
             overall[nick] = overall.get(nick, 0) + points

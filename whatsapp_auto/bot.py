@@ -253,27 +253,27 @@ def handle_direct_message(sender: str, text: str) -> str:
     if lowered in ("топ месяца", "месяц"):
         # Локальная копия backend/db/analytics.month_top: в контейнере нет backend,
         # поэтому дублируем маленькую чистую функцию (держать синхронно!).
+        # Очки — сумма score Lichess, не наши баллы.
         from datetime import datetime as _dt
         from datetime import timezone as _tz
 
-        points = {1: 100, 2: 80, 3: 65, 4: 50, 5: 40, 6: 30, 7: 20, 8: 10}
         conn2 = _db()
         try:
             now = _dt.now(_tz.utc)
             start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             rows = conn2.execute(
-                "SELECT r.nick, r.rank, t.clock_time, t.clock_inc, t.starts_at "
+                "SELECT r.nick, r.score, t.clock_time, t.clock_inc, t.starts_at "
                 "FROM results r JOIN tournaments t ON t.id = r.tournament_id"
             ).fetchall()
             per_speed: dict = {}
             overall: dict = {}
-            for nick, rank, clock_time, clock_inc, starts_at in rows:
+            for nick, score, clock_time, clock_inc, starts_at in rows:
                 moment = _parse_moment(starts_at)
                 if moment is None or moment.replace(tzinfo=_tz.utc) < start:
                     continue
                 estimate = (clock_time or 0) * 60 + (clock_inc or 0) * 40
                 speed = "bullet" if estimate < 180 else ("blitz" if estimate < 600 else "rapid")
-                earned = points.get(rank or 0, 5) if rank else 5
+                earned = score if score is not None else 0
                 per_speed.setdefault(speed, {}).setdefault(nick, 0)
                 per_speed[speed][nick] += earned
                 overall[nick] = overall.get(nick, 0) + earned
@@ -282,7 +282,7 @@ def handle_direct_message(sender: str, text: str) -> str:
         if not overall:
             return "В этом месяце пока пусто — играйте турниры!"
         names = {"rapid": "Рапид", "blitz": "Блиц", "bullet": "Пуля"}
-        lines = ["Топ месяца (очки за места, сумма поощряет активность):"]
+        lines = ["Топ месяца (очки Lichess):"]
         for speed in ("rapid", "blitz", "bullet"):
             if speed in per_speed:
                 top = sorted(per_speed[speed].items(), key=lambda item: item[1], reverse=True)[:5]
