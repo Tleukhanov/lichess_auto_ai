@@ -16,6 +16,57 @@ CORE_THRESHOLD = 0.75
 REGULAR_THRESHOLD = 0.40
 ACTIVITY_WINDOW_DAYS = 28
 
+# Очки за место (для топа месяца). Сумма поощряет активность:
+# игрок трёх турниров обгонит игрока одного — так задумано.
+RANK_POINTS = {1: 100, 2: 80, 3: 65, 4: 50, 5: 40, 6: 30, 7: 20, 8: 10}
+DEFAULT_RANK_POINTS = 5
+
+
+def speed_of(clock_time: int, clock_inc: int) -> str:
+    """Контроль -> rapid / blitz / bullet (логика Lichess)."""
+    estimate = (clock_time or 0) * 60 + (clock_inc or 0) * 40
+    if estimate < 180:
+        return "bullet"
+    if estimate < 600:
+        return "blitz"
+    return "rapid"
+
+
+def month_top(conn: sqlite3.Connection, year: int, month: int) -> dict:
+    """Топ месяца: {speed: [(nick, points)], 'overall': [...]}.
+
+    Учитываются турниры с starts_at в месяце (Астана). Очки суммируются.
+    """
+    start = datetime(year, month, 1, tzinfo=ASTANA)
+    end_month = month + 1 if month < 12 else 1
+    end_year = year if month < 12 else year + 1
+    end = datetime(end_year, end_month, 1, tzinfo=ASTANA)
+
+    tournaments = conn.execute(
+        "SELECT id, clock_time, clock_inc, starts_at FROM tournaments"
+    ).fetchall()
+    per_speed: dict = {}
+    overall: dict = {}
+    for tournament_id, clock_time, clock_inc, starts_at in tournaments:
+        moment = _parse_moment(starts_at)
+        if moment is None or not (start <= moment < end):
+            continue
+        speed = speed_of(clock_time or 0, clock_inc or 0)
+        for nick, rank in conn.execute(
+            "SELECT nick, rank FROM results WHERE tournament_id=?", (tournament_id,)
+        ):
+            points = RANK_POINTS.get(rank or 0, DEFAULT_RANK_POINTS) if rank else DEFAULT_RANK_POINTS
+            per_speed.setdefault(speed, {}).setdefault(nick, 0)
+            per_speed[speed][nick] += points
+            overall[nick] = overall.get(nick, 0) + points
+
+    def sort_board(board: dict) -> list:
+        return sorted(board.items(), key=lambda item: item[1], reverse=True)
+
+    result = {speed: sort_board(board) for speed, board in per_speed.items()}
+    result["overall"] = sort_board(overall)
+    return result
+
 DERIVED_COLUMNS = {
     "is_active": "INTEGER DEFAULT 0",
     "activity_pct": "REAL DEFAULT 0.0",
