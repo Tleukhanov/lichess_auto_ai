@@ -26,10 +26,10 @@ load_dotenv()
 
 try:
     # Запуск из корня репо: python -m whatsapp_auto.bot
-    from whatsapp_auto.faq_base import FAQ_CHUNKS
+    from whatsapp_auto.faq_base import FAQ_CHUNKS, FAQ_CHUNKS_KK
 except ImportError:
     # Запуск внутри Docker (файлы лежат плоско в /app)
-    from faq_base import FAQ_CHUNKS
+    from faq_base import FAQ_CHUNKS, FAQ_CHUNKS_KK
 
 WAHA_URL = os.environ.get("WAHA_URL", "http://localhost:3000")
 WAHA_API_KEY = os.environ.get("WAHA_API_KEY", "")
@@ -71,6 +71,15 @@ DB_PATH = os.environ.get(
 app = Flask(__name__)
 
 FAQ_VECTORS = None
+FAQ_VECTORS_KK = None
+
+# Буквы, которых нет в русском алфавите, — маркер казахского.
+# Дешевле и точнее любой либы для нашего случая.
+KZ_LETTERS = set("әғқңөұүһіӘҒҚҢӨҰҮҺІ")
+
+
+def detect_lang(text: str) -> str:
+    return "kk" if any(char in KZ_LETTERS for char in text) else "ru"
 
 
 # ---------- WAHA транспорт ----------
@@ -129,33 +138,60 @@ def _cosine(left, right) -> float:
 
 
 def init_faq_vectors() -> None:
-    """Ленивая инициализация: при первом вопросе, а не на старте.
+    """Ленивая инициализация обоих корпусов: при первом вопросе, а не на старте.
 
     Контейнер должен стартовать без сети и ключа — иначе получим
     crash-loop: упал → перезапустился → упал.
     """
-    global FAQ_VECTORS
-    if FAQ_VECTORS is not None:
+    global FAQ_VECTORS, FAQ_VECTORS_KK
+    if FAQ_VECTORS is not None and FAQ_VECTORS_KK is not None:
         return
     if not LLM_API_KEY:
         raise RuntimeError("Нет LLM_API_KEY — впиши ключ в .env и перезапусти api")
-    FAQ_VECTORS = _embed([chunk["text"] for chunk in FAQ_CHUNKS])
+    if FAQ_VECTORS is None:
+        FAQ_VECTORS = _embed([chunk["text"] for chunk in FAQ_CHUNKS])
+    if FAQ_VECTORS_KK is None:
+        FAQ_VECTORS_KK = _embed([chunk["text"] for chunk in FAQ_CHUNKS_KK])
 
 
 def search_faq(question: str, top_k: int = 2):
+    """Поиск по корпусу языка вопроса. Возвращает (хиты, язык)."""
     init_faq_vectors()
+    lang = detect_lang(question)
+    if lang == "kk":
+        corpus, vectors = FAQ_CHUNKS_KK, FAQ_VECTORS_KK
+    else:
+        corpus, vectors = FAQ_CHUNKS, FAQ_VECTORS
     question_vector = _embed([question])[0]
     ranked = sorted(
-        zip(FAQ_CHUNKS, FAQ_VECTORS),
+        zip(corpus, vectors),
         key=lambda item: _cosine(question_vector, item[1]),
         reverse=True,
     )
-    return [(chunk, _cosine(question_vector, vec)) for chunk, vec in ranked[:top_k]]
+    return [(chunk, _cosine(question_vector, vec)) for chunk, vec in ranked[:top_k]], lang
 
 
-def llm_answer(question: str, chunks: list) -> str:
-    """Ответ по контексту (чанк есть) или честная передача человеку (нет)."""
-    if chunks:
+def llm_answer(question: str, chunks: list, lang: str = "ru") -> str:
+    """Ответ по контексту (чанк есть) или честная передача человеку (нет).
+
+    Язык ответа = язык вопроса. Казахские инструкции короткие намеренно:
+    меньше текста — меньше шансов на ошибку модели.
+    """
+    if lang == "kk":
+        if chunks:
+            context = "\n\n".join(f"[{c['title']}] {c['text']}" for c in chunks)
+            system = (
+                "Сен шахмат федерациясының көмекшісісің. Қазақша, қысқа жауап бер. "
+                "Тек төмендегі контекст бойынша. Жауап болмаса: ҰЙЫМДАСТЫРУШЫҒА ЖІБЕРЕМІН.\n\n"
+                f"Контекст:\n{context}"
+            )
+        else:
+            system = (
+                "Сен шахмат федерациясының көмекшісісің. "
+                "Пайдаланушы клуб туралы емес сұрады. Сыпайы түрде тақырыптан тыс "
+                "екенін айт және турнирлар туралы сұрауды ұсын. Қысқа, қазақша."
+            )
+    elif chunks:
         context = "\n\n".join(f"[{c['title']}] {c['text']}" for c in chunks)
         system = (
             "Ты помощник шахматной федерации. Отвечай коротко и по-русски, "
@@ -324,12 +360,17 @@ def handle_direct_message(sender: str, text: str) -> str:
             "Самому записать тебя не могу — Lichess требует твой клик. "
             "Открой ближайший турнир из анонсов и жми «Участвовать» — ты уже в клубе."
         )
-    hits = search_faq(text)
+    hits, lang = search_faq(text)
     best = hits[0][1] if hits else 0.0
     if best >= THRESHOLD:
-        return llm_answer(text, [c for c, _ in hits])
+        return llm_answer(text, [c for c, _ in hits], lang)
     if ADMIN_CHAT_ID:
-        waha_send(ADMIN_CHAT_ID, f"Вопрос от {sender} (бот не нашёл в базе):\n{text}")
+        waha_send(ADMIN_CHAT_ID, f"Вопрос от {sender} [{lang}] (бот не нашёл в базе):\n{text}")
+    if lang == "kk":
+        return (
+            "Жақсы сұрақ — клуб ережелерінде нақты жауап жоқ. "
+            "Ұйымдастырушыға жібердім, ол жеке жауап береді."
+        )
     return (
         "Хороший вопрос — точного ответа в правилах клуба нет. "
         "Передал организатору, он ответит лично."
