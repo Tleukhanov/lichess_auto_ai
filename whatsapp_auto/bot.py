@@ -3,6 +3,10 @@
 import os
 import sys
 
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Flask, jsonify, request
@@ -16,11 +20,18 @@ app = Flask(__name__)
 
 @app.post("/webhook/")
 def webhook():
-    """Входящее событие WAHA: ЛС -> бот, группы -> игнор."""
+    """Входящее событие WAHA: ЛС -> бот, группы -> игнор. Голосовые -> в текст."""
     event = request.get_json(force=True, silent=True) or {}
     payload = event.get("payload", event)
     chat_id, sender, text, from_me = extract_message(payload)
-    if from_me or not text or is_group(chat_id):
+    if from_me or is_group(chat_id):
+        return jsonify({"ok": True, "skipped": True})
+    if not text and isinstance(payload.get("media"), dict):
+        # Голосовое (или аудио): media.url есть, текста нет — транскрибируем
+        from whatsapp_auto.voice import voice_to_text
+
+        text = voice_to_text(payload.get("media"))
+    if not text:
         return jsonify({"ok": True, "skipped": True})
     reply = handle_direct_message(sender, text)
     from whatsapp_auto.waha import waha_send

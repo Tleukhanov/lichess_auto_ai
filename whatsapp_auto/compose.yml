@@ -36,9 +36,12 @@ services:
       - DB_PATH=/app/data/federation.db
     volumes:
       - ../backend/db:/app/data
+      # Кэш моделей (whisper ~500МБ качается раз, дальше с диска)
+      - hf_cache:/root/.cache
     depends_on:
       - waha
     restart: unless-stopped
 
 volumes:
   waha_data:
+  hf_cache:
