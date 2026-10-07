@@ -7,6 +7,8 @@
 import random as _random
 from datetime import datetime, timedelta, timezone
 
+ASTANA_TZ = timezone(timedelta(hours=5))  # UTC+5, без DST — сдвиг фиксированный
+
 from .config import ANNOUNCE_MINUTES, CLUB_TEAM_ID, GROUP_CHAT_IDS
 from .db_store import connect
 from .waha import waha_send
@@ -29,7 +31,7 @@ def render_day_announce(name, control, duration, time_label, club_link, link) ->
         f"Длительность: {duration} ⌛\n"
         f"Вступить в клуб: *{club_link}*\n"
         f"Турнир: *{link}*\n"
-        "\nКто будет — ставьте + в чат!"
+        "\nВсем удачи!"
     )
 
 
@@ -78,18 +80,21 @@ def _parse_moment(value):
 
 
 def _is_announce_time(start, now) -> bool:
-    """Дневной анонс: турнир сегодня + уже после 10:00 Астаны (ночью не будим)."""
-    astana_now = now + timedelta(hours=5)
+    """Дневной анонс: турнир сегодня + уже после 10:00 Астаны (ночью не будим).
+
+    Часовые пояса — через astimezone (пересчёт представления),
+    НЕ через +timedelta (он сдвигает сам момент — классический баг).
+    """
+    astana_now = now.astimezone(ASTANA_TZ)
     if astana_now.hour < 10:
         return False
-    astana_start = start + timedelta(hours=5)
+    astana_start = start.astimezone(ASTANA_TZ)
     return astana_start.date() == astana_now.date() and start > now
 
 
 def _start_label(start) -> str:
     """'сегодня в 20:00' — для дневного анонса."""
-    astana = start + timedelta(hours=5)
-    return f"сегодня в {astana:%H:%M}"
+    return f"сегодня в {start.astimezone(ASTANA_TZ):%H:%M}"
 
 
 def announce_due(now=None) -> list:
