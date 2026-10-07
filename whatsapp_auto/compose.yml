@@ -21,8 +21,11 @@ services:
     restart: unless-stopped
 
   api:
-    # Наш бот: вебхук + анонсы + RAG. WAHA_URL внутри сети = http://waha:3000
-    build: .
+    # Наш бот: вебхук + анонсы + RAG. WAHA_URL внутри сети = http://waha:3000.
+    # Контекст сборки — корень репо: пакет whatsapp_auto копируется целиком.
+    build:
+      context: ..
+      dockerfile: whatsapp_auto/Dockerfile
     ports:
       - "5000:5000"
     env_file:

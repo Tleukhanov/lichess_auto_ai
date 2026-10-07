@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 WORKDIR /app
-COPY requirements.txt .
+COPY whatsapp_auto/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
+COPY whatsapp_auto/ ./whatsapp_auto/
 EXPOSE 5000
 CMD ["python", "-m", "whatsapp_auto.bot"]
