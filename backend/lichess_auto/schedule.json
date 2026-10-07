@@ -25,5 +25,15 @@
     "clock_time": 5,
     "clock_increment": 3,
     "minutes": 60
+  },
+  {
+    "name": "Тест Анонс 5+3",
+    "kind": "arena",
+    "club_team_id": "test_auto_bot",
+    "variant": "standard",
+    "clock_time": 5,
+    "clock_increment": 3,
+    "minutes": 60,
+    "starts_at": "2026-10-07T18:20:00+05:00"
   }
 ]
