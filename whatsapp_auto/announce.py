@@ -5,7 +5,7 @@
 """
 
 import random as _random
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from .config import ANNOUNCE_MINUTES, GROUP_CHAT_IDS
 from .db_store import connect
@@ -58,8 +58,23 @@ def _parse_moment(value):
     return moment
 
 
+def _is_announce_time(start, now) -> bool:
+    """Дневной анонс: турнир сегодня + уже после 10:00 Астаны (ночью не будим)."""
+    astana_now = now + timedelta(hours=5)
+    if astana_now.hour < 10:
+        return False
+    astana_start = start + timedelta(hours=5)
+    return astana_start.date() == astana_now.date() and start > now
+
+
+def _start_label(start) -> str:
+    """'сегодня в 20:00' — для дневного анонса."""
+    astana = start + timedelta(hours=5)
+    return f"сегодня в {astana:%H:%M}"
+
+
 def announce_due(now=None) -> list:
-    """Проверяет расписание и рассылает due-уведомления. Возвращает id затронутых."""
+    """Состояния: 0 нет -> 1 днём -> 2 за час -> 3 за 10 мин -> 4 итоги. Возвращает id."""
     now = now or datetime.now(timezone.utc)
     if not GROUP_CHAT_IDS:
         return []
@@ -83,15 +98,19 @@ def announce_due(now=None) -> list:
                 duration = f"{length} минут"
         if not duration:
             duration = "скоротечный турнир"
-        if flag == 0 and 0 <= minutes_to_start <= 60:
-            broadcast(render_announce("hour", name, control, duration, link, "через час"))
+        if flag == 0 and _is_announce_time(start, now):
+            broadcast(render_announce("day", name, control, duration, link, _start_label(start)))
             conn.execute("UPDATE tournaments SET announced = 1 WHERE id = ?", (tournament_id,))
             touched.append(tournament_id)
-        elif flag == 1 and 0 <= minutes_to_start <= ANNOUNCE_MINUTES:
-            broadcast(render_announce("ten", name, control, duration, link, "через 10 минут"))
+        elif flag == 1 and 0 <= minutes_to_start <= 60:
+            broadcast(render_announce("hour", name, control, duration, link, "через час"))
             conn.execute("UPDATE tournaments SET announced = 2 WHERE id = ?", (tournament_id,))
             touched.append(tournament_id)
-        elif flag == 2:
+        elif flag == 2 and 0 <= minutes_to_start <= ANNOUNCE_MINUTES:
+            broadcast(render_announce("ten", name, control, duration, link, "через 10 минут"))
+            conn.execute("UPDATE tournaments SET announced = 3 WHERE id = ?", (tournament_id,))
+            touched.append(tournament_id)
+        elif flag == 3:
             finish = _parse_moment(finishes_at)
             if finish is not None and now >= finish:
                 top = conn.execute(
@@ -103,7 +122,7 @@ def announce_due(now=None) -> list:
                     broadcast(f"Итоги «{name}»:\n{places}\n{link}")
                 else:
                     broadcast(f"Турнир «{name}» завершён. Результаты — в дашборде.")
-                conn.execute("UPDATE tournaments SET announced = 3 WHERE id = ?", (tournament_id,))
+                conn.execute("UPDATE tournaments SET announced = 4 WHERE id = ?", (tournament_id,))
                 touched.append(tournament_id)
     conn.commit()
     conn.close()
