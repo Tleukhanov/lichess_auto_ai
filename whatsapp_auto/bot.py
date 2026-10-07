@@ -34,12 +34,32 @@ except ImportError:
 WAHA_URL = os.environ.get("WAHA_URL", "http://localhost:3000")
 WAHA_API_KEY = os.environ.get("WAHA_API_KEY", "")
 WAHA_SESSION = os.environ.get("WAHA_SESSION", "default")
-GROUP_CHAT_ID = os.environ.get("GROUP_CHAT_ID", "")      # 12345@g.us — вписать после подключения
+GROUP_CHAT_IDS = [
+    chat.strip() for chat in os.environ.get("GROUP_CHAT_IDS", "").split(",") if chat.strip()
+]
+if not GROUP_CHAT_IDS and os.environ.get("GROUP_CHAT_ID", ""):
+    GROUP_CHAT_IDS = [os.environ["GROUP_CHAT_ID"]]  # обратная совместимость с одной группой
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "")      # твой номер ...@c.us для эскалации
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-4o-mini")
 THRESHOLD = float(os.environ.get("RAG_THRESHOLD", "0.30"))
 ANNOUNCE_MINUTES = 10
+
+ANNOUNCE_TEMPLATES = [
+    "♟️ {name} уже скоро! {control}, играем {duration}. Жми: {link} 🔥",
+    "Эй, шахматисты! {when} стартует «{name}» ({control}, {duration}). Кто не успел — {link} ♟️",
+    "🏆 Турнир на носу: {name} — {control}, {duration}. Ссылка: {link}. Берсерк разрешён 😏",
+    "Готовьте фигуры! «{name}» ({control}) начинается {when}. {link} ⏳",
+]
+
+
+def render_announce(template_kind: str, name: str, control: str, duration: str, link: str, when: str) -> str:
+    """Случайный шаблон + подстановка. Без LLM: быстро и бесплатно."""
+    import random as _random
+
+    return _random.choice(ANNOUNCE_TEMPLATES).format(
+        name=name, control=control, duration=duration, link=link, when=when
+    )
 
 DB_PATH = os.environ.get(
     "DB_PATH",
@@ -342,26 +362,40 @@ def _parse_moment(value):
 def announce_due(now=None) -> list:
     """Состояния флага announced: 0 нет -> 1 за час -> 2 за 10 мин -> 3 итоги отправлены.
 
-    Возвращает id затронутых. Без GROUP_CHAT_ID — молча пропускаем.
+    Тексты — случайный шаблон из ANNOUNCE_TEMPLATES, рассылка — во все группы.
+    Возвращает id затронутых. Без групп — молча пропускаем.
     """
     now = now or datetime.now(timezone.utc)
-    if not GROUP_CHAT_ID:
+    if not GROUP_CHAT_IDS:
         return []
     conn = _db()
     touched = []
-    for row in conn.execute("SELECT id, name, starts_at, finishes_at, COALESCE(announced, 0) FROM tournaments"):
-        tournament_id, name, starts_at, finishes_at, flag = row
+    for row in conn.execute(
+        "SELECT id, name, starts_at, finishes_at, clock_time, clock_inc, COALESCE(announced, 0) FROM tournaments"
+    ):
+        tournament_id, name, starts_at, finishes_at, clock_time, clock_inc, flag = row
         start = _parse_moment(starts_at)
         if start is None:
             continue
         minutes_to_start = (start - now).total_seconds() / 60
         link = f"https://lichess.org/tournament/{tournament_id}"
+        control = f"{clock_time or '?'}+{clock_inc or '?'}"
+        duration = ""
+        if finishes_at:
+            finish = _parse_moment(finishes_at)
+            if finish is not None:
+                length = round((finish - start).total_seconds() / 60)
+                duration = f"{length} минут"
+        if not duration:
+            duration = "скоротечный турнир"
         if flag == 0 and 0 <= minutes_to_start <= 60:
-            waha_send(GROUP_CHAT_ID, f"Через час турнир «{name}»!\n{link}")
+            for chat_id in GROUP_CHAT_IDS:
+                waha_send(chat_id, render_announce("hour", name, control, duration, link, "через час"))
             conn.execute("UPDATE tournaments SET announced = 1 WHERE id = ?", (tournament_id,))
             touched.append(tournament_id)
         elif flag == 1 and 0 <= minutes_to_start <= ANNOUNCE_MINUTES:
-            waha_send(GROUP_CHAT_ID, f"До турнира «{name}» осталось 10 минут!\nЗаходи: {link}")
+            for chat_id in GROUP_CHAT_IDS:
+                waha_send(chat_id, render_announce("ten", name, control, duration, link, "через 10 минут"))
             conn.execute("UPDATE tournaments SET announced = 2 WHERE id = ?", (tournament_id,))
             touched.append(tournament_id)
         elif flag == 2:
@@ -373,9 +407,11 @@ def announce_due(now=None) -> list:
                 ).fetchall()
                 if top:
                     places = "\n".join(f"{i + 1}. {nick}" for i, (nick, _) in enumerate(top))
-                    waha_send(GROUP_CHAT_ID, f"Итоги «{name}»:\n{places}\n{link}")
+                    for chat_id in GROUP_CHAT_IDS:
+                        waha_send(chat_id, f"Итоги «{name}»:\n{places}\n{link}")
                 else:
-                    waha_send(GROUP_CHAT_ID, f"Турнир «{name}» завершён. Результаты — в дашборде.")
+                    for chat_id in GROUP_CHAT_IDS:
+                        waha_send(chat_id, f"Турнир «{name}» завершён. Результаты — в дашборде.")
                 conn.execute("UPDATE tournaments SET announced = 3 WHERE id = ?", (tournament_id,))
                 touched.append(tournament_id)
     conn.commit()
