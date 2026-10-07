@@ -7,16 +7,35 @@
 import random as _random
 from datetime import datetime, timedelta, timezone
 
-from .config import ANNOUNCE_MINUTES, GROUP_CHAT_IDS
+from .config import ANNOUNCE_MINUTES, CLUB_TEAM_ID, GROUP_CHAT_IDS
 from .db_store import connect
 from .waha import waha_send
 
 ANNOUNCE_TEMPLATES = [
-    "♟️ {name} уже скоро! {control}, играем {duration}. Жми: {link} 🔥",
-    "Эй, шахматисты! {when} стартует «{name}» ({control}, {duration}). Кто не успел — {link} ♟️",
-    "🏆 Турнир на носу: {name} — {control}, {duration}. Ссылка: {link}. Берсерк разрешён 😏",
-    "Готовьте фигуры! «{name}» ({control}) начинается {when}. {link} ⏳",
+    "♟️ {name} — {when}. Контроль {control}, {duration}. Ссылка: {link}",
+    "Напоминаем: «{name}» ({control}, {duration}) — {when}. Ссылка для участия: {link} ♟️",
+    "🏆 {name} — {control}, {duration}. Начало {when}. Ссылка: {link}",
+    "«{name}» ({control}) — {when}. Присоединяйтесь: {link} ⏳",
 ]
+
+
+def render_day_announce(name, control, duration, time_label, club_link, link) -> str:
+    """Дневной анонс по черновику организатора: структура его, поля наши."""
+    return (
+        "Доброго времени суток! ♟️\n"
+        f"\nСегодня в {time_label} планируется турнир «{name}»! 🏆\n"
+        f"Тип: Арена 🏟️\n"
+        f"Контроль: {control} ⏱️\n"
+        f"Длительность: {duration} ⌛\n"
+        f"Вступить в клуб: *{club_link}*\n"
+        f"Турнир: *{link}*\n"
+        "\nКто будет — ставьте + в чат!"
+    )
+
+
+def render_reminder(name, link) -> str:
+    """Напоминание за 10 минут по черновику организатора."""
+    return f"⏰ Напоминаю: через 10 минут начало турнира «{name}»!\nЗаходи: {link}"
 
 
 def render_announce(template_kind: str, name: str, control: str, duration: str, link: str, when: str) -> str:
@@ -89,6 +108,7 @@ def announce_due(now=None) -> list:
             continue
         minutes_to_start = (start - now).total_seconds() / 60
         link = f"https://lichess.org/tournament/{tournament_id}"
+        club_link = f"https://lichess.org/team/{CLUB_TEAM_ID}" if CLUB_TEAM_ID else ""
         control = f"{clock_time or '?'}+{clock_inc or '?'}"
         duration = ""
         if finishes_at:
@@ -99,7 +119,7 @@ def announce_due(now=None) -> list:
         if not duration:
             duration = "скоротечный турнир"
         if flag == 0 and _is_announce_time(start, now):
-            broadcast(render_announce("day", name, control, duration, link, _start_label(start)))
+            broadcast(render_day_announce(name, control, duration, _start_label(start).replace("сегодня в ", ""), club_link, link))
             conn.execute("UPDATE tournaments SET announced = 1 WHERE id = ?", (tournament_id,))
             touched.append(tournament_id)
         elif flag == 1 and 0 <= minutes_to_start <= 60:
@@ -107,7 +127,7 @@ def announce_due(now=None) -> list:
             conn.execute("UPDATE tournaments SET announced = 2 WHERE id = ?", (tournament_id,))
             touched.append(tournament_id)
         elif flag == 2 and 0 <= minutes_to_start <= ANNOUNCE_MINUTES:
-            broadcast(render_announce("ten", name, control, duration, link, "через 10 минут"))
+            broadcast(render_reminder(name, link))
             conn.execute("UPDATE tournaments SET announced = 3 WHERE id = ?", (tournament_id,))
             touched.append(tournament_id)
         elif flag == 3:

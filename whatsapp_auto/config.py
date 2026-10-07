@@ -14,6 +14,8 @@ if not GROUP_CHAT_IDS and os.environ.get("GROUP_CHAT_ID", ""):
 
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "")
 
+CLUB_TEAM_ID = os.environ.get("CLUB_TEAM_ID", "")  # id клуба для ссылки вступления
+
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-4o-mini")
 THRESHOLD = float(os.environ.get("RAG_THRESHOLD", "0.30"))
