@@ -6,8 +6,9 @@ services:
       - ../.env
     environment:
       # Движок без браузера (websocket): QR не зависит от версии веб-клиента.
-      # GOWS — современный Go-клиент (NOWEB упирался в обрыв соединения)
-      - WHATSAPP_DEFAULT_ENGINE=GOWS
+      # Перебраны: WEBJS (сломан refreshQR), NOWEB/GOWS (рвётся websocket).
+      # WPP — браузерный, другая библиотека (wppconnect), пробуем его.
+      - WHATSAPP_DEFAULT_ENGINE=WPP
       # Общий неймспейс: API-ключ и конфиг не меняются при смене движка
       - WAHA_NAMESPACE=all
       # Фиксированный API-ключ из .env (иначе генерируется заново при смене неймспейса)
@@ -28,6 +29,10 @@ services:
       - ../.env
     environment:
       - WAHA_URL=http://waha:3000
+      # БД федерации с хоста (аналитика и бот смотрят одни данные)
+      - DB_PATH=/app/data/federation.db
+    volumes:
+      - ../backend/db:/app/data
     depends_on:
       - waha
     restart: unless-stopped

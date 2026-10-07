@@ -32,6 +32,7 @@ except ImportError:
     from faq_base import FAQ_CHUNKS
 
 WAHA_URL = os.environ.get("WAHA_URL", "http://localhost:3000")
+WAHA_API_KEY = os.environ.get("WAHA_API_KEY", "")
 WAHA_SESSION = os.environ.get("WAHA_SESSION", "default")
 GROUP_CHAT_ID = os.environ.get("GROUP_CHAT_ID", "")      # 12345@g.us — вписать после подключения
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "")      # твой номер ...@c.us для эскалации
@@ -58,6 +59,7 @@ def waha_send(chat_id: str, text: str) -> dict:
     """Отправка текста через WAHA. Возвращает ответ шлюза."""
     response = requests.post(
         f"{WAHA_URL}/api/sendText",
+        headers={"X-Api-Key": WAHA_API_KEY},
         json={"chatId": chat_id, "text": text, "session": WAHA_SESSION},
         timeout=30,
     )
@@ -178,11 +180,15 @@ def _db():
 
 
 def link_nick(wa_id: str, nick: str, conn) -> None:
-    """Привязка WhatsApp-номера к нику Lichess: 'я tleukhanov'."""
+    """Привязка WhatsApp-номера к нику Lichess: 'я tleukhanov'.
+
+    Ники храним строчными: Lichess id всегда lowercase, а юзер пишет как попало.
+    """
+    clean = nick.strip().lstrip("@").lower()
     conn.execute(
         "INSERT INTO wa_links (wa_id, nick) VALUES (?, ?) "
         "ON CONFLICT(wa_id) DO UPDATE SET nick=excluded.nick",
-        (wa_id, nick.strip().lstrip("@")),
+        (wa_id, clean),
     )
     conn.commit()
 
