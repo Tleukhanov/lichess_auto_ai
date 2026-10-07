@@ -16,12 +16,55 @@ from backend.lichess_auto.client import get_session
 from backend.lichess_auto.tournaments import TournamentConfig, ensure_tournament
 
 SCHEDULE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schedule.json")
+DB_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "db", "federation.db"
+)
 
 
 def load_schedule(path: str = SCHEDULE_PATH) -> list:
     with open(path, encoding="utf-8") as schedule_file:
         raw_items = json.load(schedule_file)
     return [TournamentConfig.from_dict(item) for item in raw_items]
+
+
+def remember_tournament(tournament_id: str, config: TournamentConfig) -> None:
+    """Сразу пишем созданное в БД, чтобы анонсы видели его без отдельного снапшота.
+
+    finishes_at прикидываем: старт + длительность (Lichess считает так же).
+    """
+    import sqlite3
+    from datetime import datetime, timedelta, timezone
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute("ALTER TABLE tournaments ADD COLUMN announced INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    if config.starts_at:
+        start = datetime.fromisoformat(config.starts_at.replace("Z", "+00:00"))
+    else:
+        start = datetime.now(timezone.utc)
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    finish = start + timedelta(minutes=config.minutes)
+    conn.execute(
+        "INSERT INTO tournaments (id, name, variant, clock_time, clock_inc, "
+        "starts_at, finishes_at, nb_players, announced) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0) "
+        "ON CONFLICT(id) DO UPDATE SET name=excluded.name, starts_at=excluded.starts_at, "
+        "finishes_at=excluded.finishes_at",
+        (
+            tournament_id,
+            config.name,
+            config.variant,
+            config.clock_time,
+            config.clock_increment,
+            start.isoformat(),
+            finish.isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
 
 
 def main() -> None:
@@ -32,6 +75,7 @@ def main() -> None:
         result = ensure_tournament(session, username, config)
         status = "уже был (дубль)" if result["duplicate"] else "СОЗДАН"
         print(f"{status}: {config.name} -> {result['id']}")
+        remember_tournament(result["id"], config)
 
 
 if __name__ == "__main__":
