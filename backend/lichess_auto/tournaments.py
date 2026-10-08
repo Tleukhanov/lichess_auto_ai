@@ -28,6 +28,9 @@ class TournamentConfig:
     # Время старта, ISO с часовым поясом, напр. "2026-10-06T19:00:00+05:00" (Астана).
     # Пусто = старт по дефолту Lichess (через ~5 минут после создания).
     starts_at: str = ""
+    # Закреплённый турнир ("рекомендую"): только ОДИН на всё расписание.
+    # Проверяется в load_schedule — два флага = ошибка конфига.
+    is_need: bool = False
 
     def validate(self) -> None:
         if not self.club_team_id:

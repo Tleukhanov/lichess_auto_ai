@@ -66,13 +66,37 @@ def api_activity():
 
 @app.get("/api/tournaments")
 def api_tournaments(limit: int = 20):
-    """Турниры + топ-3 каждого (если есть результаты)."""
+    """Только ближайшие: стартовали не раньше 4 часов назад + все будущие.
+
+    Закреплённый («рекомендую») — первым. Фильтр в Python, а не в SQL:
+    starts_at лежит в двух форматах (ISO и миллисы), SQL их не сравнит.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from backend.db.analytics import _parse_moment
+
     conn = _db()
-    tournaments = conn.execute(
-        "SELECT id, name, variant, clock_time, clock_inc, starts_at, nb_players "
-        "FROM tournaments ORDER BY starts_at DESC LIMIT ?",
-        (limit,),
+    try:
+        conn.execute("SELECT is_need FROM tournaments LIMIT 1")
+        need_column = "COALESCE(is_need, 0)"
+    except sqlite3.OperationalError:
+        need_column = "0"  # старая БД без флага — считаем все обычными
+    rows = conn.execute(
+        "SELECT id, name, variant, clock_time, clock_inc, starts_at, nb_players, "
+        f"({need_column}) AS need FROM tournaments"
     ).fetchall()
+    now = datetime.now(timezone.utc)
+    fresh = []
+    for tournament in rows:
+        moment = _parse_moment(tournament["starts_at"])
+        if moment is None:
+            continue
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        if moment >= now - timedelta(hours=4):
+            fresh.append(tournament)
+    fresh.sort(key=lambda row: (not row["need"], str(row["starts_at"])))
+    tournaments = fresh[:limit]
     result = []
     for tournament in tournaments:
         top = conn.execute(
@@ -87,6 +111,7 @@ def api_tournaments(limit: int = 20):
                 "clock": f"{tournament['clock_time'] or '?'}+{tournament['clock_inc'] or '?'}",
                 "starts_at": tournament["starts_at"],
                 "nb_players": tournament["nb_players"],
+                "is_need": bool(tournament["need"]),
                 "link": f"https://lichess.org/tournament/{tournament['id']}",
                 "top": [
                     {"nick": row["nick"], "rank": row["rank"], "score": row["score"]}

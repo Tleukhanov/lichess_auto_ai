@@ -24,7 +24,11 @@ DB_PATH = os.path.join(
 def load_schedule(path: str = SCHEDULE_PATH) -> list:
     with open(path, encoding="utf-8") as schedule_file:
         raw_items = json.load(schedule_file)
-    return [TournamentConfig.from_dict(item) for item in raw_items]
+    configs = [TournamentConfig.from_dict(item) for item in raw_items]
+    pinned = [config.name for config in configs if config.is_need]
+    if len(pinned) > 1:
+        raise ValueError(f"Закреплённым может быть только один турнир, а помечены: {pinned}")
+    return configs
 
 
 def remember_tournament(tournament_id: str, config: TournamentConfig) -> None:
@@ -40,6 +44,10 @@ def remember_tournament(tournament_id: str, config: TournamentConfig) -> None:
         conn.execute("ALTER TABLE tournaments ADD COLUMN announced INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+    try:
+        conn.execute("ALTER TABLE tournaments ADD COLUMN is_need INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
     if config.starts_at:
         start = datetime.fromisoformat(config.starts_at.replace("Z", "+00:00"))
     else:
@@ -47,12 +55,15 @@ def remember_tournament(tournament_id: str, config: TournamentConfig) -> None:
     if start.tzinfo is None:
         start = start.replace(tzinfo=timezone.utc)
     finish = start + timedelta(minutes=config.minutes)
+    # Закреплённым может быть только один: сначала снимаем флаг со всех
+    if config.is_need:
+        conn.execute("UPDATE tournaments SET is_need = 0")
     conn.execute(
         "INSERT INTO tournaments (id, name, variant, clock_time, clock_inc, "
-        "starts_at, finishes_at, nb_players, announced) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0) "
+        "starts_at, finishes_at, nb_players, announced, is_need) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?) "
         "ON CONFLICT(id) DO UPDATE SET name=excluded.name, starts_at=excluded.starts_at, "
-        "finishes_at=excluded.finishes_at",
+        "finishes_at=excluded.finishes_at, is_need=excluded.is_need",
         (
             tournament_id,
             config.name,
@@ -61,6 +72,7 @@ def remember_tournament(tournament_id: str, config: TournamentConfig) -> None:
             config.clock_increment,
             start.isoformat(),
             finish.isoformat(),
+            1 if config.is_need else 0,
         ),
     )
     conn.commit()

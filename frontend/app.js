@@ -103,8 +103,9 @@ async function renderTournaments(app) {
   }
   const cards = items.map((item) => {
     const top = (item.top || []).map((row) => `${row.rank}. ${row.nick} (${row.score})`).join('<br>');
+    const pinned = item.is_need ? ' <span class="badge badge-good">Рекомендую</span>' : '';
     return `<div class="card">
-      <div class="card-header"><span class="card-title"><a href="${item.link}" target="_blank" rel="noopener">${item.name}</a></span>
+      <div class="card-header"><span class="card-title"><a href="${item.link}" target="_blank" rel="noopener">${item.name}</a>${pinned}</span>
       <span class="badge badge-blue">${item.clock}</span></div>
       <div>Участников: ${item.nb_players}</div>
       <div>${top || 'Результатов пока нет'}</div>

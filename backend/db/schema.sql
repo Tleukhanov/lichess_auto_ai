@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS tournaments (
     clock_inc   INTEGER,
     starts_at   TEXT,
     finishes_at TEXT,
-    nb_players  INTEGER DEFAULT 0
+    nb_players  INTEGER DEFAULT 0,
+    announced   INTEGER DEFAULT 0,         -- 0 нет -> 1 днём -> 2 за час -> 3 за 10 мин -> 4 итоги
+    is_need     INTEGER DEFAULT 0          -- 1 = закреплён («рекомендую»), только один
 );
 
 CREATE TABLE IF NOT EXISTS results (
