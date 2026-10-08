@@ -150,7 +150,7 @@ async function renderActivity(app) {
     const active = member.is_active ? '<span class="badge badge-good">active</span>' : '';
     return `<tr><td>${member.nick}</td><td>${member.rapid ?? '—'}</td><td>${member.blitz ?? '—'}</td><td>${member.bullet ?? '—'}</td><td><span class="badge ${badge}">${member.tier}</span> ${active}</td></tr>`;
   }).join('');
-  app.innerHTML = `<h1>Активность</h1>
+  app.innerHTML = `<h1>Клубная активность</h1>
     <div class="card"><div class="table-wrap"><table>
       <thead><tr><th>Игрок</th><th>Rapid</th><th>Blitz</th><th>Bullet</th><th>Тир</th></tr></thead>
       <tbody>${rows}</tbody>
