@@ -111,7 +111,28 @@ async function renderTournaments(app) {
       <div>${top || 'Результатов пока нет'}</div>
     </div>`;
   }).join('');
-  app.innerHTML = `<h1>Турниры</h1><div class="grid">${cards}</div>`;
+  app.innerHTML = `<h1>Турниры</h1><div class="grid">${cards}</div>
+    <p><button class="btn btn-secondary" id="past-btn">Прошедшие турниры</button></p>
+    <div id="past-list"></div>`;
+  app.querySelector('#past-btn').addEventListener('click', async (event) => {
+    const list = app.querySelector('#past-list');
+    const btn = event.currentTarget;
+    if (list.dataset.loaded) {
+      const hidden = list.style.display === 'none';
+      list.style.display = hidden ? '' : 'none';
+      btn.textContent = hidden ? 'Скрыть прошедшие' : 'Прошедшие турниры';
+      return;
+    }
+    const past = await api('/api/tournaments?past=true');
+    list.dataset.loaded = '1';
+    list.innerHTML = past.length
+      ? past.map((item) => `<div class="card">
+          <div class="card-header"><span class="card-title"><a href="${item.link}" target="_blank" rel="noopener">${item.name}</a></span></div>
+          <div>Участников: ${item.nb_players}</div>
+        </div>`).join('')
+      : '<p>Прошедших пока нет.</p>';
+    btn.textContent = 'Скрыть прошедшие';
+  });
 }
 
 const TIER_BADGE = { core: 'badge-good', regular: 'badge-blue', casual: 'badge-neutral', dormant: 'badge-bad' };

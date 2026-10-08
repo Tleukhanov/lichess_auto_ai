@@ -65,10 +65,10 @@ def api_activity():
 
 
 @app.get("/api/tournaments")
-def api_tournaments(limit: int = 20):
-    """Только ближайшие: стартовали не раньше 4 часов назад + все будущие.
+def api_tournaments(limit: int = 20, past: bool = False):
+    """Будущие (по умолчанию) или прошедшие (?past=true — для кнопки-раскрывалки).
 
-    Закреплённый («рекомендую») — первым. Фильтр в Python, а не в SQL:
+    Закреплённый («рекомендую») — первым среди будущих. Фильтр в Python:
     starts_at лежит в двух форматах (ISO и миллисы), SQL их не сравнит.
     """
     from datetime import datetime, timedelta, timezone
@@ -86,17 +86,24 @@ def api_tournaments(limit: int = 20):
         f"({need_column}) AS need FROM tournaments"
     ).fetchall()
     now = datetime.now(timezone.utc)
-    fresh = []
+    picked = []
     for tournament in rows:
         moment = _parse_moment(tournament["starts_at"])
         if moment is None:
             continue
         if moment.tzinfo is None:
             moment = moment.replace(tzinfo=timezone.utc)
-        if moment >= now - timedelta(hours=4):
-            fresh.append(tournament)
-    fresh.sort(key=lambda row: (not row["need"], str(row["starts_at"])))
-    tournaments = fresh[:limit]
+        is_future = moment >= now - timedelta(hours=4)
+        if past and is_future:
+            continue
+        if not past and not is_future:
+            continue
+        picked.append(tournament)
+    if past:
+        picked.sort(key=lambda row: str(row["starts_at"]), reverse=True)
+    else:
+        picked.sort(key=lambda row: (not row["need"], str(row["starts_at"])))
+    tournaments = picked[:limit]
     result = []
     for tournament in tournaments:
         top = conn.execute(
