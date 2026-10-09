@@ -37,7 +37,7 @@ function navigate(view) {
   if (!views.includes(view)) view = 'top';
   state.view = view;
   document.querySelectorAll('#nav a').forEach((link) => {
-    link.classList.toggle('btn-active', link.dataset.view === view);
+    link.classList.toggle('active', link.dataset.view === view);
   });
   render();
 }
