@@ -222,6 +222,15 @@ def announce_due(now=None) -> list:
         elif flag == 3:
             finish = _parse_moment(finishes_at)
             if finish is not None and now >= finish:
+                # Синк ПЕРЕД итогами: иначе топ собирается по слепку
+                # середины турнира (как было 16.10 с поздним блицем).
+                try:
+                    from backend.db.results import import_results as _import_results
+                    from backend.lichess_auto.client import get_session as _get_session
+
+                    _import_results(_get_session(), tournament_id, conn)
+                except Exception:
+                    pass  # Lichess недоступен — шлём то, что уже в базе
                 top = conn.execute(
                     "SELECT nick, rank FROM results WHERE tournament_id=? ORDER BY rank LIMIT 3",
                     (tournament_id,),
