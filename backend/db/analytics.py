@@ -134,7 +134,9 @@ def refresh_activity(conn: sqlite3.Connection, now: datetime | None = None) -> d
 
     played = {}
     for (tournament_id, nick) in conn.execute("SELECT tournament_id, nick FROM results"):
-        played.setdefault(nick, set()).add(tournament_id)
+        # Ник в results — с оригинальным регистром (Sobakaaaaaa),
+        # в members — строчными (sobakaaaaaa): сравниваем в нижнем.
+        played.setdefault((nick or "").lower(), set()).add(tournament_id)
 
     total = len(in_window)
     summary = {"core": 0, "regular": 0, "casual": 0, "dormant": 0}
