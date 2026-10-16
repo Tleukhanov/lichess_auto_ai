@@ -111,6 +111,21 @@ def _mark_day_digest_sent(conn, day_key: str) -> None:
     conn.execute("INSERT OR IGNORE INTO day_digest (day) VALUES (?)", (day_key,))
 
 
+def _fmt_control(clock_time, clock_inc) -> str:
+    """Контроль вида '3+0': 0 — валидное добавление, '?' — только если данных нет."""
+    time_part = "?" if clock_time is None else str(clock_time)
+    inc_part = "?" if clock_inc is None else str(clock_inc)
+    return f"{time_part}+{inc_part}"
+
+
+def _short_name(name: str) -> str:
+    """Убирает технический хвост ' Arena' из fullName Lichess."""
+    short = (name or "").strip()
+    if short.lower().endswith(" arena"):
+        short = short[: -len(" arena")].rstrip()
+    return short or "Турнир"
+
+
 def send_day_digest(now=None) -> bool:
     """Единый утренний дайджест: один раз в день в 10:00+ Астана."""
     now = now or datetime.now(timezone.utc)
@@ -145,14 +160,14 @@ def send_day_digest(now=None) -> bool:
             if not start:
                 continue
             t_label = start.astimezone(ASTANA_TZ).strftime("%H:%M")
-            ctrl = f"{clock_time or '?'}+{clock_inc or '?'}"
+            ctrl = _fmt_control(clock_time, clock_inc)
             dur = ""
             if finishes_at:
                 fin = _parse_moment(finishes_at)
                 if fin:
                     dur = f" ({round((fin - start).total_seconds() / 60)} мин)"
             link = f"https://lichess.org/tournament/{tid}"
-            lines.append(f"• {t_label} — <b>{name}</b> [{ctrl}]{dur} — {link}")
+            lines.append(f"• {t_label} — <b>{_short_name(name)}</b> [{ctrl}]{dur} — {link}")
         lines.append(f"\n🔗 Клуб: https://lichess.org/team/{CLUB_TEAM_ID}")
         lines.append("Удачных партий! ♟️")
         broadcast("\n".join(lines))
@@ -182,7 +197,8 @@ def announce_due(now=None) -> list:
         minutes_to_start = (start - now).total_seconds() / 60
         link = f"https://lichess.org/tournament/{tournament_id}"
         club_link = f"https://lichess.org/team/{CLUB_TEAM_ID}" if CLUB_TEAM_ID else ""
-        control = f"{clock_time or '?'}+{clock_inc or '?'}"
+        control = _fmt_control(clock_time, clock_inc)
+        name = _short_name(name)
         duration = ""
         if finishes_at:
             finish = _parse_moment(finishes_at)
