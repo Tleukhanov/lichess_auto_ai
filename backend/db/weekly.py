@@ -127,6 +127,13 @@ def main() -> None:
     with open(path, "w", encoding="utf-8") as report_file:
         report_file.write(report + "\n")
     print(f"\nсохранено: {path}")
+    try:
+        from whatsapp_auto.announce import broadcast
+
+        broadcast("📊 Итоги недели федерации:\n\n" + report)
+        print("отправлено в группы WhatsApp")
+    except Exception as exc:
+        print(f"не удалось отправить в WhatsApp: {exc}")
     conn.close()
 
 
