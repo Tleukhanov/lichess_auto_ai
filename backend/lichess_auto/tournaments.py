@@ -31,6 +31,8 @@ class TournamentConfig:
     # Закреплённый турнир ("рекомендую"): только ОДИН на всё расписание.
     # Проверяется в load_schedule — два флага = ошибка конфига.
     is_need: bool = False
+    # Описание на странице турнира (видно всем участникам). Пусто = без описания.
+    description: str = ""
 
     def validate(self) -> None:
         if not self.club_team_id:
@@ -76,6 +78,8 @@ def _create_arena(session, config: TournamentConfig) -> dict:
         payload["startDate"] = _to_millis(config.starts_at)
     if config.opening_fen:
         payload["position"] = config.opening_fen
+    if config.description:
+        payload["description"] = config.description
     return post_with_retry(session, f"{BASE_URL}/api/tournament", payload)
 
 

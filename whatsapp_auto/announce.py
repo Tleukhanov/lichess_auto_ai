@@ -97,12 +97,80 @@ def _start_label(start) -> str:
     return f"сегодня в {start.astimezone(ASTANA_TZ):%H:%M}"
 
 
+def _today_key(now: datetime) -> str:
+    """Ключ дня в Астане: YYYY-MM-DD."""
+    return now.astimezone(ASTANA_TZ).strftime("%Y-%m-%d")
+
+
+def _day_digest_sent(conn, day_key: str) -> bool:
+    row = conn.execute("SELECT 1 FROM day_digest WHERE day = ?", (day_key,)).fetchone()
+    return row is not None
+
+
+def _mark_day_digest_sent(conn, day_key: str) -> None:
+    conn.execute("INSERT OR IGNORE INTO day_digest (day) VALUES (?)", (day_key,))
+
+
+def send_day_digest(now=None) -> bool:
+    """Единый утренний дайджест: один раз в день в 10:00+ Астана."""
+    now = now or datetime.now(timezone.utc)
+    if not GROUP_CHAT_IDS:
+        return False
+    astana_now = now.astimezone(ASTANA_TZ)
+    if astana_now.hour < 10:
+        return False
+    day_key = _today_key(now)
+    conn = connect()
+    try:
+        if _day_digest_sent(conn, day_key):
+            return False
+        today_start = astana_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
+        utc_start = today_start.astimezone(timezone.utc)
+        utc_end = today_end.astimezone(timezone.utc)
+        rows = conn.execute(
+            """SELECT id, name, starts_at, clock_time, clock_inc, finishes_at
+               FROM tournaments
+               WHERE starts_at IS NOT NULL
+                 AND datetime(starts_at) >= datetime(?)
+                 AND datetime(starts_at) < datetime(?)
+               ORDER BY starts_at""",
+            (utc_start.isoformat(), utc_end.isoformat()),
+        ).fetchall()
+        if not rows:
+            return False
+        lines = ["☀️ Доброе утро! Сегодня в клубе турниры:"]
+        for tid, name, starts_at, clock_time, clock_inc, finishes_at in rows:
+            start = _parse_moment(starts_at)
+            if not start:
+                continue
+            t_label = start.astimezone(ASTANA_TZ).strftime("%H:%M")
+            ctrl = f"{clock_time or '?'}+{clock_inc or '?'}"
+            dur = ""
+            if finishes_at:
+                fin = _parse_moment(finishes_at)
+                if fin:
+                    dur = f" ({round((fin - start).total_seconds() / 60)} мин)"
+            link = f"https://lichess.org/tournament/{tid}"
+            lines.append(f"• {t_label} — <b>{name}</b> [{ctrl}]{dur} — {link}")
+        lines.append(f"\n🔗 Клуб: https://lichess.org/team/{CLUB_TEAM_ID}")
+        lines.append("Удачных партий! ♟️")
+        broadcast("\n".join(lines))
+        _mark_day_digest_sent(conn, day_key)
+        return True
+    finally:
+        conn.commit()
+        conn.close()
+
+
 def announce_due(now=None) -> list:
-    """Состояния: 0 нет -> 1 днём -> 2 за час -> 3 за 10 мин -> 4 итоги. Возвращает id."""
+    """���?�?�'�?�?�?��?: 0 �?��' -> 1 �?�?�'�? -> 2 ���� �ؐ��? -> 3 ���� 10 �?��? -> 4 ��'�?�?��. �'�?���?�?���%����' id."""
     now = now or datetime.now(timezone.utc)
     if not GROUP_CHAT_IDS:
         return []
     conn = connect()
+    # Единый утренний дайджест (раз в день)
+    send_day_digest(now)
     touched = []
     for row in conn.execute(
         "SELECT id, name, starts_at, finishes_at, clock_time, clock_inc, COALESCE(announced, 0) FROM tournaments"

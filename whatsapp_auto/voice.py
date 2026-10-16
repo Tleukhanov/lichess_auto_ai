@@ -1,7 +1,7 @@
 """Голосовые: скачивание из WAHA + транскрибация faster-whisper (локально).
 
-Цепочка: media.url из события -> GET (с API-ключом, localhost меняем на waha) ->
-временный .oga -> текст -> общий пайплайн как обычное сообщение.
+Важно: событие вебхука НЕ содержит ссылку на файл (только флаг),
+поэтому медиа докачиваем отдельным запросом downloadMedia по id сообщения.
 """
 
 import os
@@ -24,11 +24,13 @@ def _get_model():
     return _model
 
 
-def download_audio(media_url: str) -> str:
-    """Скачивает аудио во временный файл. Возвращает путь."""
-    url = media_url.replace("http://localhost:3000", WAHA_URL)
+def download_audio(chat_id: str, message_id: str) -> str:
+    """Скачивает голосовое во временный файл. Возвращает путь."""
     response = requests.get(
-        url, headers={"X-Api-Key": WAHA_API_KEY}, timeout=120
+        f"{WAHA_URL}/api/{WAHA_SESSION}/chats/{chat_id}/messages/{message_id}",
+        headers={"X-Api-Key": WAHA_API_KEY},
+        params={"downloadMedia": "true"},
+        timeout=120,
     )
     response.raise_for_status()
     tmp = tempfile.NamedTemporaryFile(suffix=".oga", delete=False)
@@ -43,11 +45,16 @@ def transcribe(path: str) -> str:
     return " ".join(segment.text.strip() for segment in segments).strip()
 
 
-def voice_to_text(media: dict) -> str:
-    """media из события WAHA -> текст (с чисткой временного файла)."""
-    url = (media or {}).get("url", "")
-    if not url:
-        return ""
+def voice_to_text(chat_id: str, message_id: str) -> str:
+    """Голосовое -> текст (с чисткой временного файла)."""
+    path = download_audio(chat_id, message_id)
+    try:
+        return transcribe(path)
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
     path = download_audio(url)
     try:
         return transcribe(path)

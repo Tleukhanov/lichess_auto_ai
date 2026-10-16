@@ -1,2 +1,4 @@
 requests
 python-dotenv
+fastapi>=0.110
+uvicorn[standard]>=0.29

@@ -1,0 +1,8 @@
+{
+  "name": "Chess Federation Board",
+  "description": "Federation dashboard: tournaments, results, monthly tops, analytics.",
+  "stack": "heroku-24",
+  "buildpacks": [{ "url": "heroku/python" }],
+  "addons": [],
+  "formation": { "web": { "quantity": 1, "size": "eco" } }
+}

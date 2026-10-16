@@ -23,14 +23,18 @@ def webhook():
     """Входящее событие WAHA: ЛС -> бот, группы -> игнор. Голосовые -> в текст."""
     event = request.get_json(force=True, silent=True) or {}
     payload = event.get("payload", event)
+    app.logger.info("VOICE-DBG keys=%s", list(payload.keys()) if isinstance(payload, dict) else type(payload))
     chat_id, sender, text, from_me = extract_message(payload)
+    app.logger.info("VOICE-DBG chat=%s sender=%s text_len=%d from_me=%s has_media=%s",
+                    chat_id, sender, len(text or ""), from_me, isinstance(payload.get("media"), dict))
     if from_me or is_group(chat_id):
         return jsonify({"ok": True, "skipped": True})
     if not text and isinstance(payload.get("media"), dict):
-        # Голосовое (или аудио): media.url есть, текста нет — транскрибируем
+        # Голосовое (или аудио): файла в событии нет — докачиваем по id сообщения
         from whatsapp_auto.voice import voice_to_text
 
-        text = voice_to_text(payload.get("media"))
+        app.logger.info("VOICE-ID: id=%r source=%r", payload.get("id"), payload.get("source"))
+        text = voice_to_text(chat_id, str(payload.get("id") or ""))
     if not text:
         return jsonify({"ok": True, "skipped": True})
     reply = handle_direct_message(sender, text)

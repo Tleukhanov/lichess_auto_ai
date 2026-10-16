@@ -37,11 +37,15 @@ CREATE TABLE IF NOT EXISTS results (
     rank          INTEGER,
     score         REAL,
     nb_games      INTEGER,
-    rating_before INTEGER,                 -- рейтинг на старт (из history)
-    rating_after  INTEGER,                 -- рейтинг на финиш (из history)
-    berserk_pct   REAL,                    -- % партий с берсерком (может быть NULL)
-    raw           TEXT,                    -- сырой JSON строки (на случай новых полей)
+    rating_before INTEGER,                 -- �?����'��?�? �?�� �?�'���?�' (��� history)
+    rating_after  INTEGER,                 -- �?����'��?�? �?�� �"��?��? (��� history)
+    berserk_pct   REAL,                    -- % �����?�'��� �? �+��?�?��?��?�? (�?�?���' �+�<�'�? NULL)
+    raw           TEXT,                    -- �?�<�?�?�� JSON �?�'�?�?��� (�?�� �?�>�?�ؐ��� �?�?�?�<�: ���?�>���)
     PRIMARY KEY (tournament_id, nick)
+);
+
+CREATE TABLE IF NOT EXISTS day_digest (
+    day TEXT PRIMARY KEY  -- YYYY-MM-DD в Астане
 );
 
 CREATE INDEX IF NOT EXISTS idx_results_nick ON results(nick);
