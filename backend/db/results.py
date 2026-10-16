@@ -76,7 +76,8 @@ def import_results(session, tournament_id: str, conn: sqlite3.Connection) -> int
             continue
         row = json.loads(line)
         player = row.get("player") or {}
-        nick = player.get("id") or player.get("name")
+        # Формат Lichess менялся: то вложенный player{id,name}, то плоский username.
+        nick = player.get("id") or player.get("name") or row.get("username")
         if not nick:
             continue
         conn.execute(
