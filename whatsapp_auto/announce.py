@@ -219,8 +219,12 @@ def announce_due(now=None) -> list:
             broadcast(render_announce("hour", name, control, duration, link, "через час"))
             conn.execute("UPDATE tournaments SET announced = 2 WHERE id = ?", (tournament_id,))
             touched.append(tournament_id)
-        elif flag == 2 and 0 <= minutes_to_start <= ANNOUNCE_MINUTES:
-            broadcast(render_reminder(name, link))
+        elif flag == 2 and minutes_to_start <= ANNOUNCE_MINUTES:
+            # Окно могли промахнуть (планировщик не тикнул вовремя) — тогда
+            # напоминание не шлём, но флаг всё равно двигаем, иначе турнир
+            # навсегда застревает на 2 и итоги не уйдут.
+            if minutes_to_start >= 0:
+                broadcast(render_reminder(name, link))
             conn.execute("UPDATE tournaments SET announced = 3 WHERE id = ?", (tournament_id,))
             touched.append(tournament_id)
         elif flag == 3:

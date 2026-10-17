@@ -8,6 +8,7 @@
 - Тиры: core >= 75%, regular >= 40%, casual > 0%, dormant = 0%.
 """
 
+import calendar
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -174,7 +175,15 @@ def fetch_rating_history(username: str) -> dict:
     for perf in response.json():
         points = []
         for year, month, day, rating in perf.get("points", []):
-            points.append((datetime(year, month, day, tzinfo=timezone.utc), rating))
+            # Lichess шлёт агрегаты с month=0/day=0 и иногда 29 февраля
+            # в невисокосном году. datetime такое не принимает — приводим
+            # к валидной дате, мусор пропускаем.
+            if not year or not month or not day:
+                continue
+            last_day = calendar.monthrange(year, month)[1]
+            points.append(
+                (datetime(year, month, min(day, last_day), tzinfo=timezone.utc), rating)
+            )
         history[perf.get("name", "").lower()] = sorted(points)
     return history
 
