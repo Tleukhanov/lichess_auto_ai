@@ -13,6 +13,10 @@ from .config import ANNOUNCE_MINUTES, CLUB_TEAM_ID, GROUP_CHAT_IDS
 from .db_store import connect
 from .waha import waha_send
 
+# Lichess досчитывает арену асинхронно после finishesAt: первые ~3 минуты
+# отдаёт нулевую таблицу. Ждём столько перед отправкой итогов.
+RESULTS_SETTLE_SECONDS = 180
+
 ANNOUNCE_TEMPLATES = [
     "♟️ {name} — {when}. Контроль {control}, {duration}. Ссылка: {link}",
     "Напоминаем: «{name}» ({control}, {duration}) — {when}. Ссылка для участия: {link} ♟️",
@@ -231,13 +235,21 @@ def announce_due(now=None) -> list:
                     _import_results(_get_session(), tournament_id, conn)
                 except Exception:
                     pass  # Lichess недоступен — шлём то, что уже в базе
+                # Lichess досчитывает арену асинхронно: сразу после финиша
+                # отдаёт нули/пустую таблицу. Ждём паузу и проверяем, что
+                # данные финальные — иначе отправка уедет на следующий тик.
+                if (now - finish).total_seconds() < RESULTS_SETTLE_SECONDS:
+                    continue
                 top = conn.execute(
-                    "SELECT nick, rank FROM results WHERE tournament_id=? ORDER BY rank LIMIT 3",
+                    "SELECT nick, rank, score FROM results WHERE tournament_id=? "
+                    "ORDER BY rank LIMIT 3",
                     (tournament_id,),
                 ).fetchall()
-                if top:
-                    places = "\n".join(f"{i + 1}. {nick}" for i, (nick, _) in enumerate(top))
+                if top and any((score or 0) > 0 for _, _, score in top):
+                    places = "\n".join(f"{i + 1}. {nick}" for i, (nick, _, _) in enumerate(top))
                     broadcast(f"Итоги «{name}»:\n{places}\n{link}")
+                elif top:
+                    continue  # таблица ещё нулевая — ждём следующего тика
                 else:
                     broadcast(f"Турнир «{name}» завершён. Результаты — в дашборде.")
                 conn.execute("UPDATE tournaments SET announced = 4 WHERE id = ?", (tournament_id,))
