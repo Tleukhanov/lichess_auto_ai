@@ -55,11 +55,3 @@ def voice_to_text(chat_id: str, message_id: str) -> str:
             os.remove(path)
         except OSError:
             pass
-    path = download_audio(url)
-    try:
-        return transcribe(path)
-    finally:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
